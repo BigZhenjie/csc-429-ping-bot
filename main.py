@@ -5,8 +5,11 @@ import asyncio
 import hikari
 import socket
 import time
+from keep_alive import keep_alive
 
 load_dotenv()
+
+keep_alive()
 
 bot = lightbulb.BotApp(
     token=os.getenv("BOT_TOKEN"),
