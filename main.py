@@ -15,6 +15,7 @@ bot = lightbulb.BotApp(
 CHECK_INTERVAL = 60  # seconds
 IP_TO_PING = "159.89.226.167"
 CHANNEL_ID = 1361883740724264990
+port = 4000
 
 async def is_host_up(host, port=22, timeout=2):
     """Check if host is up by attempting a socket connection"""
