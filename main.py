@@ -12,7 +12,7 @@ bot = lightbulb.BotApp(
     token=os.getenv("BOT_TOKEN"),
     prefix="!")
 
-CHECK_INTERVAL = 60  # seconds
+CHECK_INTERVAL = 300  # seconds
 IP_TO_PING = "159.89.226.167"
 CHANNEL_ID=1361883740724264990
 async def ping_ip_once():
