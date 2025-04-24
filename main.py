@@ -16,7 +16,7 @@ bot = lightbulb.BotApp(
     prefix="!")
 
 CHECK_INTERVAL = 60  # seconds
-IP_TO_PING = "159.89.226.167"
+IP_TO_PING = "147.182.252.85"
 CHANNEL_ID = 1361883740724264990
 port = 4000
 
