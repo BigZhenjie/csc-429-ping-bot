@@ -50,21 +50,6 @@ def _check_socket(host, port, timeout):
     except:
         return False
 
-@bot.command
-@lightbulb.command("ports", "shows status of all monitored ports")
-@lightbulb.implements(lightbulb.SlashCommand)
-async def ports(ctx: lightbulb.Context) -> None:
-    status_messages = []
-    
-    for port in PORTS_TO_MONITOR:
-        service_name = PORT_SERVICES.get(port, f"Port {port}")
-        is_up = await check_port(IP_TO_PING, port)
-        
-        status = "✅ UP" if is_up else "❌ DOWN"
-        status_messages.append(f"{service_name}: {status}")
-    
-    await ctx.respond("\n".join(status_messages))
-
 @bot.listen(hikari.StartedEvent)
 async def on_start(_):
     print(f"Starting monitoring for {IP_TO_PING} on ports: {', '.join(map(str, PORTS_TO_MONITOR))}")
@@ -107,9 +92,30 @@ async def on_start(_):
     asyncio.create_task(monitor_ports())
 
 @bot.command
+@lightbulb.command("ports", "shows status of all monitored ports")
+@lightbulb.implements(lightbulb.SlashCommand)
+async def ports(ctx: lightbulb.Context) -> None:
+    # Defer the response to avoid timeout
+    await ctx.respond(hikari.ResponseType.DEFERRED_MESSAGE_CREATE)
+    
+    status_messages = []
+    
+    for port in PORTS_TO_MONITOR:
+        service_name = PORT_SERVICES.get(port, f"Port {port}")
+        is_up = await check_port(IP_TO_PING, port)
+        
+        status = "✅ UP" if is_up else "❌ DOWN"
+        status_messages.append(f"{service_name}: {status}")
+    
+    await ctx.edit_last_response("\n".join(status_messages))
+
+@bot.command
 @lightbulb.command("ping", "checks status of all monitored ports")
 @lightbulb.implements(lightbulb.SlashCommand)
 async def ping(ctx: lightbulb.Context) -> None:
+    # Defer the response to avoid timeout
+    await ctx.respond(hikari.ResponseType.DEFERRED_MESSAGE_CREATE)
+    
     status_messages = []
     down_ports = 0
     up_ports = 0
@@ -138,6 +144,6 @@ async def ping(ctx: lightbulb.Context) -> None:
     
     # Combine header and status messages
     result = f"{header}\n\n" + "\n".join(status_messages)
-    await ctx.respond(result)
+    await ctx.edit_last_response(result)
 
 bot.run()
