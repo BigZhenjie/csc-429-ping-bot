@@ -18,15 +18,25 @@ bot = lightbulb.BotApp(
 CHECK_INTERVAL = 60  # seconds
 IP_TO_PING = "147.182.252.85"
 CHANNEL_ID = 1361883740724264990
-port = 4000
 
-async def is_host_up(host, port=443, timeout=2):
-    """Check if host is up by attempting a socket connection"""
+# Ports discovered on the server
+PORTS_TO_MONITOR = [22, 53, 80, 443, 5000]
+
+# Map ports to service names for better reporting
+PORT_SERVICES = {
+    22: "SSH",
+    53: "DNS",
+    80: "HTTP Website",
+    443: "HTTPS Website",
+    5000: "Gunicorn Application"
+}
+
+async def check_port(host, port, timeout=2):
+    """Check if a specific port is open"""
     try:
-        # Use asyncio to run socket operations in a thread pool
         return await asyncio.to_thread(_check_socket, host, port, timeout)
     except Exception as e:
-        print(f"Error checking host: {e}")
+        print(f"Error checking port {port}: {e}")
         return False
 
 def _check_socket(host, port, timeout):
@@ -41,30 +51,77 @@ def _check_socket(host, port, timeout):
         return False
 
 @bot.command
-@lightbulb.command("ping", "checks if the bot is alive")
+@lightbulb.command("ports", "shows status of all monitored ports")
+@lightbulb.implements(lightbulb.SlashCommand)
+async def ports(ctx: lightbulb.Context) -> None:
+    status_messages = []
+    
+    for port in PORTS_TO_MONITOR:
+        service_name = PORT_SERVICES.get(port, f"Port {port}")
+        is_up = await check_port(IP_TO_PING, port)
+        
+        status = "✅ UP" if is_up else "❌ DOWN"
+        status_messages.append(f"{service_name}: {status}")
+    
+    await ctx.respond("\n".join(status_messages))
+
+@bot.command
+@lightbulb.command("ping", "checks if the server is alive")
 @lightbulb.implements(lightbulb.SlashCommand)
 async def ping(ctx: lightbulb.Context) -> None:
-    result = ""
-    if await is_host_up(IP_TO_PING):
-        result = f"{IP_TO_PING} still up and running!"
+    # Check all important services
+    statuses = []
+    for port in PORTS_TO_MONITOR:
+        service_name = PORT_SERVICES.get(port, f"Port {port}")
+        is_up = await check_port(IP_TO_PING, port)
+        if not is_up:
+            statuses.append(f"{service_name}: DOWN")
+    
+    if not statuses:
+        result = f"{IP_TO_PING} - All services are up and running!"
     else:
-        result = f"{IP_TO_PING} is down!"
+        result = f"{IP_TO_PING} - Issues detected:\n" + "\n".join(statuses)
     await ctx.respond(result)
 
 @bot.listen(hikari.StartedEvent)
 async def on_start(_):
-    async def check_server_status():
+    print(f"Starting monitoring for {IP_TO_PING} on ports: {', '.join(map(str, PORTS_TO_MONITOR))}")
+    
+    # Keep track of port states
+    port_states = {port: None for port in PORTS_TO_MONITOR}
+    
+    async def monitor_ports():
         while True:
-            is_up = await is_host_up(IP_TO_PING)
-            if is_up:
-                print(f"{IP_TO_PING} is up and running!")
-            else:
-                print(f"{IP_TO_PING} is down!")
-                await bot.rest.create_message(
-                    CHANNEL_ID,
-                    content="@everyone ⚠️ Server is down!"
-                )
+            for port in PORTS_TO_MONITOR:
+                service_name = PORT_SERVICES.get(port, f"Port {port}")
+                is_up = await check_port(IP_TO_PING, port)
+                
+                # First check - initialize state
+                if port_states[port] is None:
+                    port_states[port] = is_up
+                    print(f"{service_name} is {'UP' if is_up else 'DOWN'}")
+                    continue
+                
+                # Alert on state change from up to down
+                if port_states[port] and not is_up:
+                    print(f"ALERT: {service_name} went DOWN!")
+                    await bot.rest.create_message(
+                        CHANNEL_ID,
+                        content=f"@everyone ⚠️ {service_name} on {IP_TO_PING} is DOWN!"
+                    )
+                    port_states[port] = False
+                
+                # Log recovery
+                elif not port_states[port] and is_up:
+                    print(f"{service_name} recovered and is now UP")
+                    await bot.rest.create_message(
+                        CHANNEL_ID,
+                        content=f"{service_name} on {IP_TO_PING} is back online"
+                    )
+                    port_states[port] = True
+            
             await asyncio.sleep(CHECK_INTERVAL)
-    asyncio.create_task(check_server_status())
+    
+    asyncio.create_task(monitor_ports())
 
 bot.run()
