@@ -20,7 +20,7 @@ IP_TO_PING = "147.182.252.85"
 CHANNEL_ID = 1361883740724264990
 port = 4000
 
-async def is_host_up(host, port=22, timeout=2):
+async def is_host_up(host, port=443, timeout=2):
     """Check if host is up by attempting a socket connection"""
     try:
         # Use asyncio to run socket operations in a thread pool
