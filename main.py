@@ -72,8 +72,30 @@ async def on_start(_):
                 try:
                     is_up = await task
                     
-                    # Handle state changes as you're already doing
-                    # ...
+                    # First check - initialize state
+                    if port_states[port] is None:
+                        port_states[port] = is_up
+                        print(f"{service_name} initial state: {'UP' if is_up else 'DOWN'}")
+                        continue
+                    
+                    # Alert on state change from up to down
+                    if port_states[port] and not is_up:
+                        print(f"ALERT: {service_name} went DOWN!")
+                        await bot.rest.create_message(
+                            CHANNEL_ID,
+                            content=f"@everyone ⚠️ {service_name} on {IP_TO_PING} is DOWN!"
+                        )
+                        port_states[port] = False
+                    
+                    # Log recovery
+                    elif not port_states[port] and is_up:
+                        print(f"{service_name} recovered and is now UP")
+                        await bot.rest.create_message(
+                            CHANNEL_ID,
+                            content=f"{service_name} on {IP_TO_PING} is back online"
+                        )
+                        port_states[port] = True
+                        
                 except Exception as e:
                     print(f"Error in monitor task for {service_name}: {e}")
             
