@@ -107,68 +107,78 @@ async def on_start(_):
 @lightbulb.command("ping", "checks status of all monitored ports")
 @lightbulb.implements(lightbulb.SlashCommand)
 async def ping(ctx: lightbulb.Context) -> None:
-    # Defer the response to avoid timeout
-    await ctx.respond(hikari.ResponseType.DEFERRED_MESSAGE_CREATE)
-    
-    # Check all ports in parallel instead of sequentially
-    port_tasks = {}
-    for port in PORTS_TO_MONITOR:
-        port_tasks[port] = asyncio.create_task(check_port(IP_TO_PING, port, timeout=1))
-    
-    # Wait for all checks to complete (with a reasonable total timeout)
     try:
-        # Set a max total wait time of 10 seconds
-        done, pending = await asyncio.wait(port_tasks.values(), timeout=10)
+        # IMMEDIATELY acknowledge the interaction before doing anything else
+        await ctx.respond("Checking port statuses...", flags=hikari.MessageFlag.EPHEMERAL)
         
-        # Cancel any pending tasks
-        for p in pending:
-            p.cancel()
-    except Exception as e:
-        await ctx.edit_last_response(f"Error checking ports: {str(e)}")
-        return
-    
-    # Process results
-    up_ports = 0
-    down_ports = 0
-    status_messages = []
-    
-    # Map results back to their ports
-    port_results = {}
-    for port, task in port_tasks.items():
+        # Check all ports in parallel
+        port_tasks = {}
+        for port in PORTS_TO_MONITOR:
+            port_tasks[port] = asyncio.create_task(check_port(IP_TO_PING, port, timeout=1))
+        
+        # Wait for all checks to complete (with a reasonable total timeout)
         try:
-            if task.done():
-                port_results[port] = task.result()
-            else:
-                # If task didn't complete in time, mark port as down
-                port_results[port] = False
-        except Exception:
-            # Handle any exceptions during task execution
-            port_results[port] = False
-    
-    # Generate status messages
-    for port in PORTS_TO_MONITOR:
-        service_name = PORT_SERVICES.get(port, f"Port {port}")
-        is_up = port_results.get(port, False)
-        
-        if is_up:
-            status = "✅ UP"
-            up_ports += 1
-        else:
-            status = "❌ DOWN"
-            down_ports += 1
+            # Set a max total wait time of 10 seconds
+            done, pending = await asyncio.wait(port_tasks.values(), timeout=10)
             
-        status_messages.append(f"{service_name}: {status}")
-    
-    # Create a summary header
-    if down_ports == 0:
-        header = f"🟢 All services on {IP_TO_PING} are operational"
-    elif down_ports == len(PORTS_TO_MONITOR):
-        header = f"🔴 All services on {IP_TO_PING} are down!"
-    else:
-        header = f"🟡 {down_ports}/{len(PORTS_TO_MONITOR)} services on {IP_TO_PING} are down"
-    
-    # Combine header and status messages
-    result = f"{header}\n\n" + "\n".join(status_messages)
-    await ctx.edit_last_response(result)
+            # Cancel any pending tasks
+            for p in pending:
+                p.cancel()
+        except Exception as e:
+            await ctx.respond(f"Error checking ports: {str(e)}")
+            return
+        
+        # Process results
+        up_ports = 0
+        down_ports = 0
+        status_messages = []
+        
+        # Map results back to their ports
+        port_results = {}
+        for port, task in port_tasks.items():
+            try:
+                if task.done():
+                    port_results[port] = task.result()
+                else:
+                    # If task didn't complete in time, mark port as down
+                    port_results[port] = False
+            except Exception:
+                # Handle any exceptions during task execution
+                port_results[port] = False
+        
+        # Generate status messages
+        for port in PORTS_TO_MONITOR:
+            service_name = PORT_SERVICES.get(port, f"Port {port}")
+            is_up = port_results.get(port, False)
+            
+            if is_up:
+                status = "✅ UP"
+                up_ports += 1
+            else:
+                status = "❌ DOWN"
+                down_ports += 1
+                
+            status_messages.append(f"{service_name}: {status}")
+        
+        # Create a summary header
+        if down_ports == 0:
+            header = f"🟢 All services on {IP_TO_PING} are operational"
+        elif down_ports == len(PORTS_TO_MONITOR):
+            header = f"🔴 All services on {IP_TO_PING} are down!"
+        else:
+            header = f"🟡 {down_ports}/{len(PORTS_TO_MONITOR)} services on {IP_TO_PING} are down"
+        
+        # Combine header and status messages
+        result = f"{header}\n\n" + "\n".join(status_messages)
+        
+        # Send the final response as a follow-up
+        await ctx.respond(result)
+    except Exception as e:
+        print(f"Error in ping command: {e}")
+        # Try to send a message if possible
+        try:
+            await ctx.respond(f"An error occurred: {str(e)}")
+        except:
+            pass
 
 bot.run()
