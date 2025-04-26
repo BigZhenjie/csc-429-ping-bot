@@ -65,24 +65,6 @@ async def ports(ctx: lightbulb.Context) -> None:
     
     await ctx.respond("\n".join(status_messages))
 
-@bot.command
-@lightbulb.command("ping", "checks if the server is alive")
-@lightbulb.implements(lightbulb.SlashCommand)
-async def ping(ctx: lightbulb.Context) -> None:
-    # Check all important services
-    statuses = []
-    for port in PORTS_TO_MONITOR:
-        service_name = PORT_SERVICES.get(port, f"Port {port}")
-        is_up = await check_port(IP_TO_PING, port)
-        if not is_up:
-            statuses.append(f"{service_name}: DOWN")
-    
-    if not statuses:
-        result = f"{IP_TO_PING} - All services are up and running!"
-    else:
-        result = f"{IP_TO_PING} - Issues detected:\n" + "\n".join(statuses)
-    await ctx.respond(result)
-
 @bot.listen(hikari.StartedEvent)
 async def on_start(_):
     print(f"Starting monitoring for {IP_TO_PING} on ports: {', '.join(map(str, PORTS_TO_MONITOR))}")
