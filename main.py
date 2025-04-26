@@ -111,13 +111,14 @@ async def ping(ctx: lightbulb.Context) -> None:
     await ctx.respond(hikari.ResponseType.DEFERRED_MESSAGE_CREATE)
     
     # Check all ports in parallel instead of sequentially
-    tasks = {port: check_port(IP_TO_PING, port, timeout=1) for port in PORTS_TO_MONITOR}
-    results = {}
+    port_tasks = {}
+    for port in PORTS_TO_MONITOR:
+        port_tasks[port] = asyncio.create_task(check_port(IP_TO_PING, port, timeout=1))
     
     # Wait for all checks to complete (with a reasonable total timeout)
     try:
         # Set a max total wait time of 10 seconds
-        done, pending = await asyncio.wait(tasks.values(), timeout=10)
+        done, pending = await asyncio.wait(port_tasks.values(), timeout=10)
         
         # Cancel any pending tasks
         for p in pending:
@@ -133,11 +134,15 @@ async def ping(ctx: lightbulb.Context) -> None:
     
     # Map results back to their ports
     port_results = {}
-    for port, task in tasks.items():
-        if task.done():
-            port_results[port] = task.result()
-        else:
-            # If task didn't complete in time, mark port as down
+    for port, task in port_tasks.items():
+        try:
+            if task.done():
+                port_results[port] = task.result()
+            else:
+                # If task didn't complete in time, mark port as down
+                port_results[port] = False
+        except Exception:
+            # Handle any exceptions during task execution
             port_results[port] = False
     
     # Generate status messages
