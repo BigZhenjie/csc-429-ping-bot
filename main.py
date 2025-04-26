@@ -124,4 +124,38 @@ async def on_start(_):
     
     asyncio.create_task(monitor_ports())
 
+@bot.command
+@lightbulb.command("ping", "checks status of all monitored ports")
+@lightbulb.implements(lightbulb.SlashCommand)
+async def ping(ctx: lightbulb.Context) -> None:
+    status_messages = []
+    down_ports = 0
+    up_ports = 0
+    
+    # Get status for each port
+    for port in PORTS_TO_MONITOR:
+        service_name = PORT_SERVICES.get(port, f"Port {port}")
+        is_up = await check_port(IP_TO_PING, port)
+        
+        if is_up:
+            status = "✅ UP"
+            up_ports += 1
+        else:
+            status = "❌ DOWN"
+            down_ports += 1
+            
+        status_messages.append(f"{service_name}: {status}")
+    
+    # Create a summary header
+    if down_ports == 0:
+        header = f"🟢 All services on {IP_TO_PING} are operational"
+    elif down_ports == len(PORTS_TO_MONITOR):
+        header = f"🔴 All services on {IP_TO_PING} are down!"
+    else:
+        header = f"🟡 {down_ports}/{len(PORTS_TO_MONITOR)} services on {IP_TO_PING} are down"
+    
+    # Combine header and status messages
+    result = f"{header}\n\n" + "\n".join(status_messages)
+    await ctx.respond(result)
+
 bot.run()
