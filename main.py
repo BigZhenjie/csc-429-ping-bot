@@ -6,7 +6,7 @@ import hikari
 import socket
 import time
 from keep_alive import keep_alive
-
+from backup import Backup
 load_dotenv()
 
 keep_alive()
@@ -16,8 +16,9 @@ bot = lightbulb.BotApp(
     prefix="!")
 
 CHECK_INTERVAL = 60  # seconds
-IP_TO_PING = "147.182.252.85"
-CHANNEL_ID = 1361883740724264990
+IP_TO_PING = os.getenv("SERVER_IP")
+PING_CHANNEL_ID = os.getenv("PING_CHANNEL_ID")
+BACKUP_CHANNEL_ID = os.getenv("BACKUP_CHANNEL_ID")
 
 # Ports discovered on the server
 PORTS_TO_MONITOR = [22, 53, 80, 443, 5000]
@@ -31,6 +32,7 @@ PORT_SERVICES = {
     5000: "Gunicorn Application"
 }
 
+backup_system = Backup()
 async def check_port(host, port, timeout=2):
     """Check if a specific port is open"""
     try:
@@ -82,7 +84,7 @@ async def on_start(_):
                     if port_states[port] and not is_up:
                         print(f"ALERT: {service_name} went DOWN!")
                         await bot.rest.create_message(
-                            CHANNEL_ID,
+                            PING_CHANNEL_ID,
                             content=f"@everyone ⚠️ {service_name} on {IP_TO_PING} is DOWN!"
                         )
                         port_states[port] = False
@@ -91,7 +93,7 @@ async def on_start(_):
                     elif not port_states[port] and is_up:
                         print(f"{service_name} recovered and is now UP")
                         await bot.rest.create_message(
-                            CHANNEL_ID,
+                            PING_CHANNEL_ID,
                             content=f"{service_name} on {IP_TO_PING} is back online"
                         )
                         port_states[port] = True
