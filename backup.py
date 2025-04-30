@@ -1,8 +1,6 @@
 import os
 import zipfile
 import datetime
-import discord
-from discord.ext import commands
 import io
 import paramiko
 import tempfile
@@ -160,41 +158,48 @@ class Backup:
         for file_path, _ in backups[self.max_backups:]:
             os.remove(file_path)
     
-    async def send_backup_to_channel(self, bot, channel_id):
-        """
-        Create a backup and send it to a Discord channel.
-        
-        Args:
-            bot: Discord bot instance
-            channel_id (int): ID of the channel to send backup to
-        
-        Returns:
-            bool: True if successful, False otherwise
-        """
-        try:
-            channel = bot.get_channel(channel_id)
-            if channel is None:
-                print(f"Channel with ID {channel_id} not found.")
-                return False
-            
-            # Create backup
-            await channel.send("Creating backup... This may take some time.")
-            backup_path = self.create_backup()
-            
-            if not backup_path:
-                await channel.send("Failed to create backup. Check server logs for details.")
-                return False
-            
-            # Check if file size is under Discord's limit (25MB)
-            file_size = os.path.getsize(backup_path) / (1024 * 1024)  # in MB
-            if file_size > 25:
-                await channel.send(f"Backup file is too large ({file_size:.2f}MB) to send directly.")
-                return False
-            
-            file = discord.File(backup_path)
-            await channel.send(f"Website backup created on {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}:", file=file)
-            return True
-        except Exception as e:
-            print(f"Error creating or sending backup: {e}")
-            await channel.send(f"Error during backup process: {str(e)}")
+async def send_backup_to_channel(self, bot, channel_id):
+    """
+    Create a backup and send it to a Discord channel.
+    
+    Args:
+        bot: Hikari bot instance
+        channel_id (int): ID of the channel to send backup to
+    
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        # Create backup
+        backup_path = self.create_backup()
+        if not backup_path:
+            await bot.rest.create_message(
+                channel_id,
+                "Failed to create backup. Check server logs for details."
+            )
             return False
+        
+        # Check if file size is under Discord's limit (25MB)
+        file_size = os.path.getsize(backup_path) / (1024 * 1024)  # in MB
+        if file_size > 25:
+            await bot.rest.create_message(
+                channel_id,
+                f"Backup file is too large ({file_size:.2f}MB) to send directly."
+            )
+            return False
+        
+        # Send the backup file
+        with open(backup_path, "rb") as f:
+            await bot.rest.create_message(
+                channel_id,
+                f"Website backup created on {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}:",
+                attachment=f
+            )
+        return True
+    except Exception as e:
+        print(f"Error creating or sending backup: {e}")
+        await bot.rest.create_message(
+            channel_id,
+            f"Error during backup process: {str(e)}"
+        )
+        return False
