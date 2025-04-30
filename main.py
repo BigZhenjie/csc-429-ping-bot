@@ -36,9 +36,7 @@ backup_system = Backup(
     ssh_host=os.getenv("SSH_HOST", IP_TO_PING),  # Default to monitored IP if not specified
     ssh_port=int(os.getenv("SSH_PORT", "22")),
     ssh_username=os.getenv("SSH_USERNAME"),
-    ssh_key_path=os.getenv("SSH_KEY_PATH"),
-    ssh_key_passphrase=os.getenv("SSH_KEY_PASSPHRASE"),
-    remote_dir="/var/www/html"
+    ssh_key_passphrase=os.getenv("SSH_KEY_PASSPHRASE")
 )
 
 async def check_port(host, port, timeout=2):

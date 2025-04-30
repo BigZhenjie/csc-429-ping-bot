@@ -7,12 +7,15 @@ import io
 import paramiko
 import tempfile
 import shutil
+import stat
+import posixpath 
+from io import StringIO
 
 class Backup:
     def __init__(self, backup_dir="backups", max_backups=5, 
                  ssh_host=None, ssh_port=22, ssh_username=None, 
-                 ssh_key_path=None, ssh_key_passphrase=None, 
-                 remote_dir="/var/www/html"):
+                 ssh_key_passphrase=None, 
+                 remote_dir="/var/www/student_app"):
         """
         Initialize the Backup class.
         
@@ -22,7 +25,6 @@ class Backup:
             ssh_host (str): SSH server hostname/IP
             ssh_port (int): SSH server port
             ssh_username (str): SSH username
-            ssh_key_path (str): Path to SSH private key
             ssh_key_passphrase (str): Passphrase for the SSH key
             remote_dir (str): Remote directory to backup
         """
@@ -31,7 +33,6 @@ class Backup:
         self.ssh_host = ssh_host
         self.ssh_port = ssh_port
         self.ssh_username = ssh_username
-        self.ssh_key_path = ssh_key_path
         self.ssh_key_passphrase = ssh_key_passphrase
         self.remote_dir = remote_dir
         
@@ -50,13 +51,18 @@ class Backup:
             client = paramiko.SSHClient()
             client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
             
-            # Load private key
-            private_key = paramiko.RSAKey.from_private_key_file(
-                self.ssh_key_path, 
-                password=self.ssh_key_passphrase
-            )
+            # Load private key from environment variable
+            ssh_key_data = os.getenv("SSH_KEY")
+            if not ssh_key_data:
+                raise ValueError("SSH_KEY environment variable is not set or empty.")
             
-            # Connect with key authentication
+            # Replace literal \n with actual newlines
+            ssh_key_data = ssh_key_data.replace("\\n", "\n")
+            
+            # Load the private key
+            private_key = paramiko.Ed25519Key.from_private_key(StringIO(ssh_key_data), password=self.ssh_key_passphrase)
+            
+            # Connect to the server
             client.connect(
                 hostname=self.ssh_host,
                 port=self.ssh_port,
@@ -123,36 +129,20 @@ class Backup:
             shutil.rmtree(temp_dir, ignore_errors=True)
     
     def _download_dir(self, sftp, remote_dir, local_dir):
-        """
-        Recursively download directory from remote server.
-        
-        Args:
-            sftp: SFTP client
-            remote_dir (str): Remote directory path
-            local_dir (str): Local directory path
-        """
-        # Create local directory
-        if not os.path.exists(local_dir):
-            os.makedirs(local_dir)
-        
-        try:
-            # List remote directory
-            for item in sftp.listdir_attr(remote_dir):
-                remote_path = os.path.join(remote_dir, item.filename).replace('\\', '/')
-                local_path = os.path.join(local_dir, item.filename)
-                
-                # Skip venv directory
-                if item.filename == 'venv' and item.longname.startswith('d'):
-                    continue
-                    
-                if item.longname.startswith('d'):  # Directory
-                    # Recursively download subdirectory
-                    self._download_dir(sftp, remote_path, local_path)
-                else:  # File
-                    # Download file
-                    sftp.get(remote_path, local_path)
-        except Exception as e:
-            print(f"Error downloading {remote_dir}: {e}")
+        os.makedirs(local_dir, exist_ok=True)
+
+        for item in sftp.listdir_attr(remote_dir):
+            if item.filename in ('venv', '__pycache__'):
+                continue
+
+            remote_path = posixpath.join(remote_dir, item.filename)  # ✅ always forward slashes
+            local_path = os.path.join(local_dir, item.filename)      # ✅ local filesystem
+
+            if stat.S_ISDIR(item.st_mode):
+                self._download_dir(sftp, remote_path, local_path)
+            else:
+                print(f"Downloading: {remote_path} -> {local_path}")  # helpful log
+                sftp.get(remote_path, local_path)
     
     def _cleanup_old_backups(self):
         """Delete old backups if exceeding max_backups limit."""
