@@ -256,3 +256,20 @@ class ServerMonitor:
                 up_ports += 1
         
         # Create a summary header
+        total_services = len(self.ports_to_monitor) + (1 if self.api_endpoint else 0)
+        if down_ports == 0:
+            header = f"🟢 All services on {self.ip_address} are operational"
+        elif down_ports == total_services:
+            header = f"🔴 All services on {self.ip_address} are down!"
+        else:
+            header = f"🟡 {down_ports}/{total_services} services on {self.ip_address} are down"
+        
+        # Return complete result
+        return {
+            "header": header,
+            "status_messages": status_messages,
+            "up_ports": up_ports,
+            "down_ports": down_ports,
+            "port_results": port_results,
+            "api_result": api_result if self.api_endpoint else None
+        }
