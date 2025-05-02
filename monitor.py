@@ -77,8 +77,14 @@ class ServerMonitor:
                     if 200 <= response.status < 300:
                         try:
                             # Try to parse response as JSON
-                            _ = await response.json()
-                            return True
+                            json_response = await response.json()
+                            
+                            # Verify the response contains the 'hash' field
+                            if 'hash' in json_response:
+                                return True
+                            else:
+                                print(f"API endpoint {self.api_endpoint} responded without required 'hash' field")
+                                return False
                         except:
                             # Response wasn't valid JSON
                             print(f"API endpoint {self.api_endpoint} responded with non-JSON content")
