@@ -5,9 +5,10 @@ import time
 import aiohttp
 import json
 
+
 class ServerMonitor:
-    def __init__(self, ip_address, ports_to_monitor=None, check_interval=60, port_services=None, 
-                api_endpoint=None):
+    def __init__(self, ip_address, ports_to_monitor=None, check_interval=60, port_services=None,
+                api_endpoint=None, patch=None):
         """
         Initialize the ServerMonitor class.
         
@@ -29,7 +30,9 @@ class ServerMonitor:
         self.port_states = {port: None for port in self.ports_to_monitor}
         self.api_endpoint = api_endpoint
         self.api_state = None
-    
+        self.patch_update = patch
+        self.patch_attempted = False
+
     async def check_port(self, port, timeout=2):
         """Check if a specific port is open"""
         try:
@@ -37,7 +40,7 @@ class ServerMonitor:
         except Exception as e:
             print(f"Error checking port {port}: {e}")
             return False
-    
+
     def _check_socket(self, port, timeout):
         """Helper function to perform socket connection"""
         try:
@@ -52,7 +55,7 @@ class ServerMonitor:
         except Exception as e:
             print(f"Unexpected error checking {self.ip_address}:{port} - {e}")
             return False
-    
+
     async def check_api_endpoint(self, timeout=5):
         """
         Check if the API endpoint is responding properly
@@ -65,11 +68,11 @@ class ServerMonitor:
         """
         if not self.api_endpoint:
             return None
-        
+
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.post(
-                    self.api_endpoint, 
+                    self.api_endpoint,
                     json={"name": "test"},
                     timeout=timeout
                 ) as response:
@@ -78,7 +81,7 @@ class ServerMonitor:
                         try:
                             # Try to parse response as JSON
                             json_response = await response.json()
-                            
+
                             # Verify the response contains the 'hash' field
                             if 'hash' in json_response:
                                 return True
@@ -98,7 +101,8 @@ class ServerMonitor:
         except Exception as e:
             print(f"Error checking API endpoint {self.api_endpoint}: {e}")
             return False
-    
+
+
     async def monitor_ports(self, bot, channel_id):
         """
         Continuously monitor ports and send alerts to the specified channel
@@ -110,28 +114,28 @@ class ServerMonitor:
         print(f"Starting monitoring for {self.ip_address} on ports: {', '.join(map(str, self.ports_to_monitor))}")
         if self.api_endpoint:
             print(f"Also monitoring API endpoint: {self.api_endpoint}")
-        
+
         while True:
             # Check all ports in parallel
             tasks = {port: self.check_port(port) for port in self.ports_to_monitor}
-            
+
             # Add API endpoint check if configured
             api_task = None
             if self.api_endpoint:
                 api_task = self.check_api_endpoint()
-            
+
             # Wait for all checks to complete
             for port, task in tasks.items():
                 service_name = self.port_services.get(port, f"Port {port}")
                 try:
                     is_up = await task
-                    
+
                     # First check - initialize state
                     if self.port_states[port] is None:
                         self.port_states[port] = is_up
                         print(f"{service_name} initial state: {'UP' if is_up else 'DOWN'}")
                         continue
-                    
+
                     # Alert on state change from up to down
                     if self.port_states[port] and not is_up:
                         print(f"ALERT: {service_name} went DOWN!")
@@ -140,7 +144,7 @@ class ServerMonitor:
                             content=f"@everyone ⚠️ {service_name} on {self.ip_address} is DOWN!"
                         )
                         self.port_states[port] = False
-                    
+
                     # Log recovery
                     elif not self.port_states[port] and is_up:
                         print(f"{service_name} recovered and is now UP")
@@ -149,20 +153,19 @@ class ServerMonitor:
                             content=f"{service_name} on {self.ip_address} is back online"
                         )
                         self.port_states[port] = True
-                        
+
                 except Exception as e:
                     print(f"Error in monitor task for {service_name}: {e}")
-            
+
+
             # Check API endpoint if configured
             if api_task:
                 try:
                     api_is_up = await api_task
-                    
-                    # First check - initialize state
                     if self.api_state is None:
                         self.api_state = api_is_up
                         print(f"API endpoint initial state: {'UP' if api_is_up else 'DOWN'}")
-                    
+
                     # Alert on state change from up to down
                     elif self.api_state and not api_is_up:
                         print(f"ALERT: API endpoint went DOWN!")
@@ -171,7 +174,53 @@ class ServerMonitor:
                             content=f"@everyone ⚠️ API endpoint {self.api_endpoint} is DOWN!"
                         )
                         self.api_state = False
-                    
+
+                        # Run patch update automatically when API goes down
+                        if self.patch_update and not self.patch_attempted:
+                            print("Running automatic patch update due to API endpoint failure...")
+                            try:
+                                def run_patch():
+                                    self.patch_attempted = True
+                                    return self.patch_update.modify_file()
+                                success = await asyncio.to_thread(run_patch)
+                                if success:
+                                    print("Automatic patch update completed successfully")
+                                    await bot.rest.create_message(
+                                        channel_id,
+                                        content="🔧 Automatic patch update completed - restarting service..."
+                                    )
+
+                                    # Restart service after successful patch
+                                    def restart_service():
+                                        return self.patch_update.restart_service()
+                                    restart_success = await asyncio.to_thread(restart_service)
+                                    if restart_success:
+                                        print("Service restart completed successfully")
+                                        await bot.rest.create_message(
+                                            channel_id,
+                                            content="🔄 Service restarted successfully"
+                                        )
+                                        # Reset patch attempt state after successful patch and restart
+                                        self.patch_attempted = False
+                                    else:
+                                        print("Service restart failed")
+                                        await bot.rest.create_message(
+                                            channel_id,
+                                            content="⚠️ Patch attempted & service restart failed - manual intervention may be required"
+                                        )
+                                else:
+                                    print("Automatic patch update failed")
+                                    await bot.rest.create_message(
+                                        channel_id,
+                                        content="⚠️ Automatic patch update failed"
+                                    )
+                            except Exception as patch_error:
+                                print(f"Error during automatic patch update: {patch_error}")
+                                await bot.rest.create_message(
+                                    channel_id,
+                                    content=f"❌ Automatic patch update encountered an error: {str(patch_error)}"
+                                )
+
                     # Log recovery
                     elif not self.api_state and api_is_up:
                         print(f"API endpoint recovered and is now UP")
@@ -180,12 +229,13 @@ class ServerMonitor:
                             content=f"API endpoint {self.api_endpoint} is back online"
                         )
                         self.api_state = True
-                        
+                        self.patch_attempted = False
+
                 except Exception as e:
                     print(f"Error in API endpoint monitoring: {e}")
-            
+
             await asyncio.sleep(self.check_interval)
-    
+
     async def check_all_ports(self, timeout=1):
         """
         Check all monitored ports once and return results
@@ -200,22 +250,22 @@ class ServerMonitor:
         port_tasks = {}
         for port in self.ports_to_monitor:
             port_tasks[port] = asyncio.create_task(self.check_port(port, timeout=timeout))
-        
+
         # Add API endpoint check if configured
         api_task = None
         if self.api_endpoint:
             api_task = asyncio.create_task(self.check_api_endpoint(timeout=timeout*2))
-        
+
         # Wait for all checks to complete (with a reasonable total timeout)
         await asyncio.wait(list(port_tasks.values()), timeout=timeout * 2)
-        
+
         # Wait for API check if applicable
         if api_task:
             try:
                 await asyncio.wait([api_task], timeout=timeout * 2)
             except Exception as e:
                 print(f"Error waiting for API task: {e}")
-        
+
         # Map results back to their ports
         port_results = {}
         for port, task in port_tasks.items():
@@ -229,7 +279,7 @@ class ServerMonitor:
             except Exception:
                 # Handle any exceptions during task execution
                 port_results[port] = False
-        
+
         # Get API result if applicable
         api_result = False
         if api_task:
@@ -240,18 +290,18 @@ class ServerMonitor:
                     api_task.cancel()
             except Exception:
                 api_result = False
-        
+
         up_ports = sum(1 for status in port_results.values() if status)
         down_ports = sum(1 for status in port_results.values() if not status)
-        
+
         status_messages = []
         for port in self.ports_to_monitor:
             service_name = self.port_services.get(port, f"Port {port}")
             is_up = port_results.get(port, False)
-            
+
             status = "✅ UP" if is_up else "❌ DOWN"
             status_messages.append(f"{service_name}: {status}")
-        
+
         # Add API status if applicable
         if self.api_endpoint:
             api_status = "✅ UP" if api_result else "❌ DOWN"
@@ -260,7 +310,7 @@ class ServerMonitor:
                 down_ports += 1
             else:
                 up_ports += 1
-        
+
         # Create a summary header
         total_services = len(self.ports_to_monitor) + (1 if self.api_endpoint else 0)
         if down_ports == 0:
@@ -269,7 +319,7 @@ class ServerMonitor:
             header = f"🔴 All services on {self.ip_address} are down!"
         else:
             header = f"🟡 {down_ports}/{total_services} services on {self.ip_address} are down"
-        
+
         # Return complete result
         return {
             "header": header,

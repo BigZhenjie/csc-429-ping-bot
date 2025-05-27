@@ -7,6 +7,7 @@ import time
 from keep_alive import keep_alive
 from backup import Backup
 from monitor import ServerMonitor
+from patch_update import PatchUpdate
 import aiohttp
 load_dotenv()
 
@@ -40,13 +41,21 @@ backup_system = Backup(
     ssh_key_passphrase=os.getenv("SSH_KEY_PASSPHRASE")
 )
 
+patch_update = PatchUpdate(
+    ssh_host=os.getenv("SSH_HOST", IP_TO_PING),
+    ssh_port=int(os.getenv("SSH_PORT", "22")),
+    ssh_username=os.getenv("SSH_USERNAME"),
+    ssh_key_passphrase=os.getenv("SSH_KEY_PASSPHRASE")
+)
+
 # Initialize server monitor
 server_monitor = ServerMonitor(
     ip_address=IP_TO_PING,
     ports_to_monitor=PORTS_TO_MONITOR,
     check_interval=CHECK_INTERVAL,
     port_services=PORT_SERVICES,
-    api_endpoint="https://team08.csc429.io/submit-transaction"
+    api_endpoint="https://team08.csc429.io/submit-transaction",
+    patch = patch_update
 )
 
 @bot.listen(hikari.StartedEvent)
@@ -75,6 +84,46 @@ async def ping(ctx: lightbulb.Context) -> None:
         # Try to send a message if possible
         try:
             await ctx.respond(f"An error occurred: {str(e)}")
+        except:
+            pass
+
+
+@bot.command
+@lightbulb.command("patch", "Run patch update to fix broken paths")
+@lightbulb.implements(lightbulb.SlashCommand)
+async def patch_command(ctx: lightbulb.Context) -> None:
+    try:
+        # Acknowledge the interaction immediately
+        await ctx.respond("Running patch update... This may take a moment.", flags=hikari.MessageFlag.EPHEMERAL)
+        def run_patch():
+            try:
+                return patch_update.modify_file()
+            except Exception as e:
+                print(f"Error running patch update: {e}")
+                return False
+        success = await asyncio.to_thread(run_patch)
+        if success:
+            await ctx.respond("✅ Attempting Endpoint Patch!")
+            # Restart the service after successful patch
+            def restart_service():
+                try:
+                    return patch_update.restart_service()
+                except Exception as e:
+                    print(f"Error restarting service: {e}")
+                    return False
+            restart_success = await asyncio.to_thread(restart_service)
+            if restart_success:
+                await ctx.respond("🔄 Service restarted successfully!")
+            else:
+                await ctx.respond("⚠️ Patch completed but service restart failed.")
+        else:
+            await ctx.respond("❌ Patch update failed")
+
+    except Exception as e:
+        print(f"Error in patch command: {e}")
+        # Try to send a message if possible
+        try:
+            await ctx.respond(f"An error occurred during patch update: {str(e)}")
         except:
             pass
 
